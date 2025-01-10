@@ -3,16 +3,7 @@
 #include "homekit.hpp"
 
 extern "C" {
-    #include <stdbool.h>
-
     #include <hap.h>
-    #include <hap_apple_servs.h>
-    #include <hap_apple_chars.h>
-    #include <hap_fw_upgrade.h>
-
-    #include <iot_button.h>
-    #include <app_wifi.h>
-    #include <app_hap_setup_payload.h>
 }
 
 #include <Arduino.h>
@@ -22,6 +13,7 @@ extern "C" {
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <cstdbool>
 
 enum class Operation {
     F_OFF = 0,
@@ -32,8 +24,8 @@ enum class Operation {
 };
 
 struct FanState {
-    bool light_state = 0; // initially off
-    Operation fan_speed_state = Operation::F_OFF; // initially off, {0,1,2,3}
+    bool light_state = 0;
+    Operation fan_speed_state = Operation::F_OFF;
 };
 
 struct FanData {
@@ -46,9 +38,6 @@ struct TaskParams {
     QueueHandle_t q2;
 };
 
-// for some of the fans sending a fan_light value will just toggle, such as 3069 without a specific off value or a specific on value
-
-// TODO: UPDATE THIS FOR EVERY FAN maybe allow the data (int value) to be monidified using kconfig
 static std::unordered_map<Operation, struct FanData> FanDataMap = {
     {Operation::F_OFF, {4029, 12}},
     {Operation::F_LOW, {2045, 12}},

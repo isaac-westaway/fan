@@ -3,20 +3,13 @@
 extern "C" {
     #include <esp_log.h>
 
-    #include <freertos/FreeRTOS.h>
-    #include <freertos/task.h>
+    #include <driver/gpio.h>
 
     #include <hap.h>
-    #include <hap_apple_servs.h>
-    #include <hap_apple_chars.h>
-    #include <hap_fw_upgrade.h>
 
     #include <iot_button.h>
-    #include <app_wifi.h>
-    #include <app_hap_setup_payload.h>
 }
 
-#define RESET_GPIO                      GPIO_NUM_0
 #define RESET_NETWORK_BUTTON_TIMEOUT    3
 #define RESET_TO_FACTORY_BUTTON_TIMEOUT 10
 
@@ -27,7 +20,8 @@ void Accessory::accessory_event_handler(void *arg, esp_event_base_t event_base, 
 {
     static const char *TAG = "Hap Fan";
 
-    switch(event_id) {
+    switch(event_id)
+    {
         case HAP_EVENT_PAIRING_STARTED:
             ESP_LOGI(TAG, "\nPairing started\n");
             break;
@@ -43,8 +37,6 @@ void Accessory::accessory_event_handler(void *arg, esp_event_base_t event_base, 
         case HAP_EVENT_CTRL_CONNECTED:
             ESP_LOGI(TAG, "\nController %s Connected\n", (char *)event_data);
             break;
-
-
         case HAP_EVENT_CTRL_DISCONNECTED:
             ESP_LOGI(TAG, "\nController %s Disconnected\n", (char *)event_data);
             break;

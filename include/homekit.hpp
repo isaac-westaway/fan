@@ -1,14 +1,10 @@
 #pragma once
 
 extern "C" {
+    #include <driver/gpio.h>
+    
     #include <hap.h>
-    #include <hap_apple_servs.h>
-    #include <hap_apple_chars.h>
-    #include <hap_fw_upgrade.h>
 
-    #include <iot_button.h>
-    #include <app_wifi.h>
-    #include <app_hap_setup_payload.h>
 }
 
 class Accessory

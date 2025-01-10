@@ -3,10 +3,9 @@
 
 extern "C" {
     #include <freertos/task.h>
-
-    #include <Arduino.h>
-    #include <RCSwitch.h>
 }
+
+#include <Arduino.h>
 
 #define FAN_TASK_PRIORITY   1
 #define FAN_TASK_STACKSIZE  4 * 1024

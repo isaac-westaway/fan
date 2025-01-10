@@ -2,20 +2,17 @@
 #include "fan.hpp"
 
 extern "C" {
-    #include <esp_log.h>
-
     #include <freertos/queue.h>
+
+    #include <driver/gpio.h> 
 
     #include <hap.h>
     #include <hap_apple_servs.h>
     #include <hap_apple_chars.h>
     #include <hap_fw_upgrade.h>
 
-    #include <iot_button.h>
     #include <app_wifi.h>
     #include <app_hap_setup_payload.h>
-
-    #include <string.h>
 }
 
 #include <Arduino.h>
@@ -23,83 +20,73 @@ extern "C" {
 
 #include <iostream>
 #include <memory>
+#include <cstdlib>
+#include <cstring>
 
 #define RESET_GPIO  GPIO_NUM_0
 
 char *server_cert = NULL;
 
-int accessory_write_wrapper(hap_write_data_t write_data[], int count, void *serv_priv, void *write_priv) {
-    if (serv_priv == nullptr) {
+int accessory_write_wrapper(hap_write_data_t write_data[], int count, void *serv_priv, void *write_priv)
+{
+    if (serv_priv == nullptr)
+    {
         return HAP_FAIL;
     }
-    Fan *fan = reinterpret_cast<Fan *>(serv_priv);
+    auto fan = static_cast<Fan *>(serv_priv);
     fan->accessory_write(write_data, count, write_priv);
     return HAP_SUCCESS;
 }
 
-static int accessory_identify(hap_acc_t *accessory) {
+static int accessory_identify(hap_acc_t *accessory)
+{
     (void)accessory;
 
     return HAP_SUCCESS;
 }
 
-// pure to simply send a state update to the fan
 void transmitter_process(void *pvParameters)
 {
     auto *transmitter = new RCSwitch();
 
-    auto task_params = reinterpret_cast<struct TaskParams*>(pvParameters);
+    auto task_params = static_cast<struct TaskParams*>(pvParameters);
 
     transmitter->enableTransmit(digitalPinToInterrupt(33));
     transmitter->setProtocol(11);
     transmitter->setPulseLength(228);
-    transmitter->setRepeatTransmit(20); // read more into this as it is the cause for some extraneous transmissions
+    transmitter->setRepeatTransmit(10);
 
     bool lightbulb_buffer;
-    float fan_speed_buffer;
+    Operation fan_speed_buffer;
 
     while (true)
     {
         if (xQueueReceive(task_params->q1, &lightbulb_buffer, pdMS_TO_TICKS(50))) 
         {
+            // dont need to do anything with the queue value
             transmitter->send(FanDataMap[Operation::F_LIGHT].value, FanDataMap[Operation::F_LIGHT].bitlength);
+            vTaskDelay(50);
         }
         if (xQueueReceive(task_params->q2, &fan_speed_buffer, pdMS_TO_TICKS(50))) 
         {
-            if (fan_speed_buffer > 67)
-            {
-                transmitter->send(FanDataMap[Operation::F_HI].value, FanDataMap[Operation::F_HI].bitlength);
-            }
-            else if (fan_speed_buffer > 33 and fan_speed_buffer <= 67)
-            {
-                transmitter->send(FanDataMap[Operation::F_MED].value, FanDataMap[Operation::F_MED].bitlength);
-            }
-            else if (fan_speed_buffer > 0 and fan_speed_buffer <= 33)
-            {
-                transmitter->send(FanDataMap[Operation::F_LOW].value, FanDataMap[Operation::F_LOW].bitlength);
-            }
-            else if (fabs(fan_speed_buffer) == 0)
-            {
-                transmitter->send(FanDataMap[Operation::F_OFF].value, FanDataMap[Operation::F_OFF].bitlength);
-            }
-            else {};
+            transmitter->send(FanDataMap[fan_speed_buffer].value, FanDataMap[fan_speed_buffer].bitlength);
+        
+            vTaskDelay(50);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(228 + 50));
+        vTaskDelay(pdMS_TO_TICKS(1000));;
     }
 }
 
 Fan::Fan(hap_acc_cfg_t &hap_acc_cfg) : Accessory::Accessory()
 {
-    fan_state = std::unique_ptr<struct FanState>(new FanState);
-
-    struct TaskParams *task_params = static_cast<struct TaskParams*>(malloc(sizeof(struct TaskParams)));
+    auto task_params = static_cast<struct TaskParams*>(malloc(sizeof(struct TaskParams)));
     task_params->q1 = xQueueCreate(256, sizeof(bool)); // lightbulb queue
     task_params->q2 = xQueueCreate(256, sizeof(float)); // fan queue
-
-    queue_handles = task_params;
-
-    xTaskCreate(transmitter_process, "transmit_proc", 2 * 2048, static_cast<void *>(task_params), 10, nullptr);
+    this->queue_handles = task_params;
+    xTaskCreate(transmitter_process, "transmit_proc", 2 * 2048, static_cast<void *>(this->queue_handles), 10, nullptr);
+    
+    this->fan_state = std::make_unique<struct FanState>();
 
     hap_cfg_t hap_cfg;
     hap_get_config(&hap_cfg);
@@ -131,8 +118,8 @@ Fan::Fan(hap_acc_cfg_t &hap_acc_cfg) : Accessory::Accessory()
     hap_serv_set_priv(fan_light_serv, this);
     hap_serv_set_priv(fan_speed_serv, this);
 
-    hap_serv_set_write_cb(fan_light_serv, accessory_write_wrapper);
-    hap_serv_set_write_cb(fan_speed_serv, accessory_write_wrapper);
+    hap_serv_set_write_cb(fan_light_serv, &accessory_write_wrapper);
+    hap_serv_set_write_cb(fan_speed_serv, &accessory_write_wrapper);
 
     hap_acc_add_serv(fan_acc, fan_light_serv);
     hap_acc_add_serv(fan_acc, fan_speed_serv);
@@ -169,15 +156,27 @@ Fan::Fan(hap_acc_cfg_t &hap_acc_cfg) : Accessory::Accessory()
 
 int Fan::accessory_write(hap_write_data_t write_data[], int count, void *write_priv)
 {
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++) 
+    {
         hap_write_data_t *write = &write_data[i];
-        if (0 == strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ON)) {
-                fan_state->light_state = write_data->val.b;
-                xQueueSend(queue_handles->q1, &fan_state->light_state, portMAX_DELAY);
-        } else if (0 == strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ROTATION_SPEED)) {
-            xQueueSend(queue_handles->q2, &write_data->val.f, portMAX_DELAY);
+
+        if (0 == strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ON)) 
+        {
+                this->fan_state->light_state = write_data->val.b;
+                xQueueSend(this->queue_handles->q1, &this->fan_state->light_state, portMAX_DELAY);
         }
-        else {
+        else if (0 == strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ROTATION_SPEED)) 
+        {
+            if (write_data->val.f > 67) this->fan_state->fan_speed_state = Operation::F_HI;
+            else if (write_data->val.f > 33 and write_data->val.f <= 67) this->fan_state->fan_speed_state = Operation::F_MED;
+            else if (write_data->val.f > 0 and write_data->val.f <= 33) this->fan_state->fan_speed_state = Operation::F_LOW;
+            else if (fabs(write_data->val.f) == 0) this->fan_state->fan_speed_state = Operation::F_OFF;
+            else {};
+            
+            xQueueSend(this->queue_handles->q2, &this->fan_state->fan_speed_state, portMAX_DELAY);
+        }
+        else 
+        {
             *(write->status) = HAP_STATUS_RES_ABSENT;
             return HAP_FAIL;
         }

@@ -42,7 +42,7 @@ else()
 
 endif()
 
-set(priv_req libsodium esp_http_server hkdf-sha mu_srp json_generator json_parser esp_hap_platform esp_hap_apple_profiles mdns)
+set(priv_req libsodium esp_http_server esp_hap_hkdf-sha esp_hap_mu_srp esp_hap_json_generator esp_hap_json_parser esp_hap_platform esp_hap_apple_profiles mdns)
 # esp_timer component was introduced in v4.2
 if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_GREATER "4.1")
     list(APPEND priv_req esp_timer)
